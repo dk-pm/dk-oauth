@@ -1,0 +1,82 @@
+{% extends 'base.html' %}
+
+{% block title %}LocalPM Auth - OAuth2 & OIDC Server{% endblock %}
+
+{% block content %}
+<div class="bg-white shadow overflow-hidden sm:rounded-lg">
+    <div class="px-4 py-5 sm:px-6">
+        <h1 class="text-3xl font-bold text-gray-900">
+            Welcome to LocalPM Auth
+        </h1>
+        <p class="mt-1 max-w-2xl text-sm text-gray-500">
+            A modern OAuth2 and OpenID Connect provider with PKCE support
+        </p>
+    </div>
+    
+    {% if user.is_authenticated %}
+        <div class="border-t border-gray-200 px-4 py-5 sm:px-6">
+            <h2 class="text-lg font-medium text-gray-900">Getting Started</h2>
+            <div class="mt-4 space-y-4">
+                <div class="rounded-md bg-blue-50 p-4">
+                    <div class="flex">
+                        <div class="ml-3">
+                            <h3 class="text-sm font-medium text-blue-800">
+                                Create an OAuth2 Application
+                            </h3>
+                            <div class="mt-2 text-sm text-blue-700">
+                                <p>Visit the admin panel to create your OAuth2 application credentials.</p>
+                                <a href="/admin/oauth2_provider/application/add/" class="mt-2 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700">
+                                    Create Application
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="rounded-md bg-gray-50 p-4">
+                    <h3 class="text-sm font-medium text-gray-800">OAuth2 Endpoints</h3>
+                    <div class="mt-2 text-sm text-gray-600 space-y-2">
+                        <p><strong>Authorization:</strong> /o/authorize/</p>
+                        <p><strong>Token:</strong> /o/token/</p>
+                        <p><strong>Revoke Token:</strong> /o/revoke/</p>
+                        <p><strong>Introspect Token:</strong> /o/introspect/</p>
+                        <p><strong>UserInfo (OIDC):</strong> /o/userinfo/</p>
+                    </div>
+                </div>
+                
+                <div class="rounded-md bg-gray-50 p-4">
+                    <h3 class="text-sm font-medium text-gray-800">Supported Features</h3>
+                    <div class="mt-2 text-sm text-gray-600">
+                        <ul class="list-disc list-inside space-y-1">
+                            <li>OAuth2 Authorization Code Flow</li>
+                            <li>PKCE (Proof Key for Code Exchange)</li>
+                            <li>OpenID Connect</li>
+                            <li>JWT Access Tokens</li>
+                            <li>Refresh Tokens</li>
+                            <li>Token Introspection</li>
+                            <li>Token Revocation</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% else %}
+        <div class="border-t border-gray-200 px-4 py-5 sm:px-6">
+            <div class="text-center">
+                <h2 class="text-lg font-medium text-gray-900">Get Started</h2>
+                <p class="mt-2 text-sm text-gray-500">
+                    Sign up or log in to start using the OAuth2 server
+                </p>
+                <div class="mt-6 space-x-4">
+                    <a href="{% url 'accounts:signup' %}" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700">
+                        Sign up
+                    </a>
+                    <a href="{% url 'accounts:login' %}" class="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                        Log in
+                    </a>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+</div>
+{% endblock %} 

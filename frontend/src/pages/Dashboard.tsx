@@ -7,7 +7,7 @@ interface UserInfo {
   sub: string;
   name: string;
   email: string;
-  preferred_username: string;
+  username: string;
 }
 
 export default function Dashboard() {
@@ -75,7 +75,7 @@ export default function Dashboard() {
                     <strong>Email:</strong> {userInfo.email}
                   </p>
                   <p>
-                    <strong>Username:</strong> {userInfo.preferred_username}
+                    <strong>Username:</strong> {userInfo.username}
                   </p>
                 </div>
               </div>

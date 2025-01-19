@@ -25,6 +25,7 @@ def generate_access_token(request):
                 "sub": str(request.user.id),
                 "email": request.user.email,
                 "username": request.user.username,
+                "name": request.user.get_full_name(),
             }
         )
 

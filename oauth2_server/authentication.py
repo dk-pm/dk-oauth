@@ -13,19 +13,15 @@ class TurboOAuth2Authentication(BaseAuthentication):
     keyword = "Turbo"
 
     def authenticate(self, request):
-
         auth = get_authorization_header(request).split()
-
         if not auth or auth[0].lower() != self.keyword.lower().encode():
             return None
-
         if len(auth) == 1:
             msg = _("Invalid token header. No credentials provided.")
             raise exceptions.AuthenticationFailed(msg)
         elif len(auth) > 2:
             msg = _("Invalid token header. Token string should not contain spaces.")
             raise exceptions.AuthenticationFailed(msg)
-
         try:
             token = auth[1].decode()
         except UnicodeError:
@@ -34,36 +30,23 @@ class TurboOAuth2Authentication(BaseAuthentication):
             )
             raise exceptions.AuthenticationFailed(msg)
 
-        user, token, payload = self.authenticate_credentials(token)
+        request.validated_token_payload = self.validate_token(token)
 
-        request.validated_payload = payload
+        return (_, token)
 
-        return (user, token)
+    def authenticate_header(self, request):
+        return self.keyword
 
-    def authenticate_credentials(self, token: str):
-        User = get_user_model()
-
+    def validate_token(self, token: str):
         try:
             payload = self._decode_jwt(token)
-
-            user = User.objects.get(id=payload["sub"])
-
-            if not user.is_active:
-                raise exceptions.AuthenticationFailed("User inactive or deleted")
-
-            return user, token, payload
-
+            return payload
         except jwt.ExpiredSignatureError as e:
             raise exceptions.AuthenticationFailed("Token has expired")
         except jwt.InvalidTokenError as e:
             raise exceptions.AuthenticationFailed("Invalid token")
-        except User.DoesNotExist:
-            raise exceptions.AuthenticationFailed("User not found")
         except Exception as e:
             raise exceptions.AuthenticationFailed("Authentication failed")
-
-    def authenticate_header(self, request):
-        return self.keyword
 
     def _decode_jwt(self, token: str) -> dict:
         try:

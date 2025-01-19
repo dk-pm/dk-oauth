@@ -5,9 +5,9 @@ from oauth2_provider.models import get_application_model
 from oauth2_provider.exceptions import OAuthToolkitError
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
 from django.db import transaction
 from .authentication import TurboOAuth2Authentication
+from .permissions import IsTurboOAuth2Authenticated
 
 
 class AuthorizationView(BaseAuthorizationView, LoginRequiredMixin):
@@ -88,28 +88,24 @@ class AuthorizationView(BaseAuthorizationView, LoginRequiredMixin):
 
 class UserInfoView(APIView):
     authentication_classes = [TurboOAuth2Authentication]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsTurboOAuth2Authenticated]
 
     def get(self, request, *args, **kwargs):
-        user = request.user
+        token_payload = (
+            request.validated_token_payload
+            if hasattr(request, "validated_token_payload")
+            else None
+        )
         claims = {
-            "sub": str(user.id),
-            "name": user.get_full_name(),
-            "preferred_username": user.username,
-            "email": user.email,
-            "email_verified": True,
+            "sub": str(token_payload["sub"]),
         }
 
-        # Add profile claims if scope is present
-        payload = (
-            request.validated_payload if hasattr(request, "validated_payload") else None
-        )
-
-        if payload and "profile" in payload["scope"]:
+        if token_payload and "profile" in token_payload["scope"]:
             claims.update(
                 {
-                    "given_name": user.first_name,
-                    "family_name": user.last_name,
+                    "email": token_payload["email"],
+                    "username": token_payload["username"],
+                    "name": token_payload["name"],
                 }
             )
 

@@ -31,12 +31,56 @@ A full-stack demonstration of OAuth2 authorization code flow with PKCE (Proof Ke
 - Tailwind CSS
 - shadcn/ui components
 
-## Prerequisites
+## Authentication Flow Diagram
 
-- Python 3.8+
-- Node.js 16+
-- pnpm
-- PostgreSQL
+```mermaid
+sequenceDiagram
+    participant User
+    participant Client
+    participant AuthServer
+    participant ResourceServer
+
+    User->>Client: Click Login
+    Note over Client: Generate PKCE
+    Note over Client: Store code_verifier
+    Client->>AuthServer: Authorization Request + code_challenge
+    AuthServer->>User: Login Page
+    User->>AuthServer: Login Credentials
+    AuthServer->>User: Consent Page
+    User->>AuthServer: Approve Access
+    AuthServer->>Client: Authorization Code
+    Client->>AuthServer: Token Request + code_verifier
+    AuthServer->>Client: Access & Refresh Tokens
+    Client->>ResourceServer: API Request + Access Token
+    ResourceServer->>Client: Protected Resource
+```
+
+## Window Communication Flow
+
+```mermaid
+graph TD
+    A[Main Window] -->|Open Popup| B[Auth Popup]
+    B -->|Auth Success| C[Callback Page]
+    C -->|Store Tokens| D[localStorage]
+    C -->|BroadcastChannel| E[Main Window]
+    E -->|Navigate| F[Dashboard]
+    C -->|Close| G[Popup Closes]
+```
+
+## Token Lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> Authorization
+    Authorization --> AccessToken
+    AccessToken --> Expired
+    Expired --> RefreshToken
+    RefreshToken --> NewAccessToken
+    NewAccessToken --> Expired
+    RefreshToken --> Revoked
+    AccessToken --> Revoked
+    Revoked --> [*]
+```
 
 ## Getting Started
 
@@ -98,6 +142,7 @@ pnpm dev
 ```plaintext
 DJANGO_SECRET_KEY=your-secret-key
 DEBUG=True
+
 POSTGRES_DB=your-db-name
 POSTGRES_USER=your-db-user
 POSTGRES_PASSWORD=your-db-password
@@ -108,9 +153,10 @@ POSTGRES_PORT=5432
 ### Frontend (.env)
 
 ```plaintext
-VITE_OAUTH_CLIENT_ID=your-client-id
-VITE_OAUTH_REDIRECT_URI=http://localhost:5173/callback
-VITE_OAUTH_AUTHORITY=http://localhost:8000
+VITE_OAUTH_CLIENT_ID=<client_id>
+VITE_OAUTH_CLIENT_SECRET=<client_secret>
+VITE_FRONTEND_URL=http://localhost:5173
+VITE_BACKEND_URL=http://localhost:8000
 ```
 
 ## API Endpoints
@@ -129,6 +175,179 @@ VITE_OAUTH_AUTHORITY=http://localhost:8000
 - Login: `/accounts/login/`
 - Logout: `/accounts/logout/`
 
+## Detailed Authentication Flow
+
+### 1. Initial Authorization Request
+
+When user clicks "Log in with OAuth2", the following occurs:
+
+```8:36:frontend/src/pages/Home.tsx
+  const handleLogin = async () => {
+    const authUrl = await getAuthorizationUrl(true);
+    const width = 500;
+    const height = 700;
+    const left = window.screenX + (window.outerWidth - width) / 2;
+    const top = window.screenY + (window.outerHeight - height) / 2;
+
+    // Create broadcast channel for cross-window communication
+    const authChannel = new BroadcastChannel("auth-channel");
+
+    authChannel.onmessage = (event) => {
+      if (event.data.type === "AUTH_SUCCESS") {
+        authChannel.close();
+        navigate("/dashboard");
+      }
+    };
+
+    const popup = window.open(
+      authUrl,
+      "OAuth Login",
+      `width=${width},height=${height},left=${left},top=${top},toolbar=0,location=0,menubar=0,status=0,scrollbars=1`
+    );
+
+    if (!popup) {
+      console.error("Popup was blocked");
+      authChannel.close();
+      return;
+    }
+  };
+```
+
+### 2. Authorization Server Processing
+
+The Django authorization server handles the request:
+
+```13:86:oauth2_server/views.py
+class AuthorizationView(BaseAuthorizationView, LoginRequiredMixin):
+    template_name = "oauth2_server/authorize.html"
+    login_url = "/accounts/login/"
+
+    def get_scopes(self):
+        # Get scopes from the request query parameters
+        scope_string = self.request.GET.get("scope", "")
+        if not scope_string and hasattr(self, "oauth2_data"):
+            # Fallback to oauth2_data if available
+            scope_string = self.oauth2_data.get("scope", "")
+        return scope_string.split() if scope_string else []
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+
+        # Get the application
+        application = None
+        try:
+            application = get_application_model().objects.get(
+                client_id=self.oauth2_data.get("client_id")
+            )
+            context["application"] = application
+        except get_application_model().DoesNotExist:
+            pass
+
+        scopes = self.get_scopes()
+
+        scope_descriptions = {
+            "openid": "Access your basic profile information",
+            "profile": "Access to your full profile details",
+            "email": "Access your email address",
+        }
+
+        context["scopes_descriptions"] = [
+            scope_descriptions.get(scope, scope) for scope in scopes
+        ]
+        return context
+    @transaction.atomic
+    def form_valid(self, form):
+        try:
+            credentials = {
+                "client_id": form.cleaned_data.get("client_id"),
+                "redirect_uri": form.cleaned_data.get("redirect_uri"),
+                "response_type": form.cleaned_data.get("response_type", None),
+                "state": form.cleaned_data.get("state", None),
+                "scope": form.cleaned_data.get("scope", None),
+                "code_challenge": form.cleaned_data.get("code_challenge", None),
+                "code_challenge_method": form.cleaned_data.get(
+                    "code_challenge_method", None
+                ),
+            }
+
+            allow = form.cleaned_data.get("allow", False)
+            if not allow:
+                redirect_url = self.error_response(credentials, "access_denied")
+                return HttpResponseRedirect(redirect_url)
+
+            # Convert scopes list to space-separated string if needed
+            scopes = self.get_scopes()
+            if isinstance(scopes, list):
+                scopes = " ".join(scopes)
+
+            uri = self.create_authorization_response(
+                request=self.request,
+                scopes=scopes,  # Now passing a string instead of a list
+                credentials=credentials,
+                allow=True,
+            )[0]
+            return HttpResponseRedirect(uri)
+
+        except OAuthToolkitError as error:
+            redirect_url = self.error_response(error.credentials, error.error)
+            return HttpResponseRedirect(redirect_url)
+```
+
+### 3. Token Exchange
+
+After receiving the authorization code:
+
+```34:61:frontend/src/lib/oauth2-config.ts
+export async function exchangeCodeForTokens(code: string, isPopup = false) {
+  const codeVerifier = localStorage.getItem("code_verifier");
+  if (!codeVerifier) throw new Error("No code verifier found");
+
+  const response = await fetch(OAUTH2_CONFIG.tokenEndpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Authorization:
+        "Basic " +
+        btoa(`${OAUTH2_CONFIG.clientId}:${OAUTH2_CONFIG.clientSecret}`),
+    },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: isPopup
+        ? `${import.meta.env.VITE_FRONTEND_URL}/callback?popup=true`
+        : OAUTH2_CONFIG.redirectUri,
+      code_verifier: codeVerifier,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to exchange code for tokens");
+  }
+
+  return response.json();
+}
+```
+
+### 4. User Information Retrieval
+
+After obtaining tokens:
+
+```63:75:frontend/src/lib/oauth2-config.ts
+export async function getUserInfo(accessToken: string) {
+  const response = await fetch(OAUTH2_CONFIG.userinfoEndpoint, {
+    headers: {
+      Authorization: `Turbo ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch user info");
+  }
+
+  return response.json();
+}
+```
+
 ## Security Considerations
 
 - PKCE is enforced for all authorization code flows
@@ -137,6 +356,19 @@ VITE_OAUTH_AUTHORITY=http://localhost:8000
 - Refresh tokens expire after 24 hours
 - CORS is configured for local development
 - SSL/TLS should be enabled in production
+- Secure cross-window communication using BroadcastChannel API
+- Automatic token cleanup and window management
+
+## Error Handling
+
+The authentication flow handles various scenarios:
+
+- Popup blocked by browser
+- Authentication timeout
+- Network failures
+- Invalid tokens
+- Authorization denied
+- Server-side errors
 
 ## Contributing
 

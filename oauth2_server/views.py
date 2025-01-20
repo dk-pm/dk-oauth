@@ -1,4 +1,4 @@
-from django.shortcuts import render, HttpResponseRedirect
+from django.shortcuts import render, HttpResponseRedirect, redirect
 from django.contrib.auth.mixins import LoginRequiredMixin
 from oauth2_provider.views import AuthorizationView as BaseAuthorizationView
 from oauth2_provider.models import get_application_model
@@ -8,24 +8,73 @@ from rest_framework.response import Response
 from django.db import transaction
 from .authentication import TurboOAuth2Authentication
 from .permissions import IsTurboOAuth2Authenticated
+from .models import DigikalaUser
+from .auth import DigikalaAuthBackend
+from django.conf import settings
+from urllib.parse import quote
 
 
-class AuthorizationView(BaseAuthorizationView, LoginRequiredMixin):
+class DigikalaAuthorizationView(BaseAuthorizationView):
     template_name = "oauth2_server/authorize.html"
-    login_url = "/accounts/login/"
+
+    def dispatch(self, request, *args, **kwargs):
+        # Get all original OAuth2 parameters
+        oauth2_params = {
+            'client_id': request.GET.get('client_id'),
+            'redirect_uri': request.GET.get('redirect_uri'),
+            'response_type': request.GET.get('response_type'),
+            'scope': request.GET.get('scope'),
+            'state': request.GET.get('state'),
+            'code_challenge': request.GET.get('code_challenge'),
+            'code_challenge_method': request.GET.get('code_challenge_method'),
+        }
+        
+        # Create the return URL with all OAuth2 parameters
+        return_url_params = '&'.join([f'{k}={v}' for k, v in oauth2_params.items() if v])
+        return_url = f'/campaigns/oauth/authorize/?{return_url_params}'
+        encoded_return_url = quote(return_url)
+        
+        digikala_token = request.COOKIES.get('Digikala:User:Token:new')
+        login_token = request.GET.get('login_token')
+        
+        if login_token:
+            return redirect(f'{settings.DIGIKALA_LOGIN_URL}?backUrl={encoded_return_url}&login_token={login_token}')
+        
+        if not digikala_token:
+            return redirect(f'{settings.DIGIKALA_LOGIN_URL}?backUrl={encoded_return_url}')
+            
+        # Authenticate with Digikala
+        auth_backend = DigikalaAuthBackend()
+        user = auth_backend.authenticate(request, digikala_token=digikala_token)
+        
+        if not user:
+            return redirect(f'{settings.DIGIKALA_LOGIN_URL}?backUrl={encoded_return_url}')
+            
+        request.user = user
+        return super().dispatch(request, *args, **kwargs)
+
+    def store_oauth2_params(self, request):
+        """Store OAuth2 parameters in session"""
+        oauth2_params = {
+            'client_id': request.GET.get('client_id'),
+            'redirect_uri': request.GET.get('redirect_uri'),
+            'response_type': request.GET.get('response_type'),
+            'scope': request.GET.get('scope'),
+            'state': request.GET.get('state'),
+            'code_challenge': request.GET.get('code_challenge'),
+            'code_challenge_method': request.GET.get('code_challenge_method'),
+        }
+        request.session['oauth2_params'] = oauth2_params
 
     def get_scopes(self):
-        # Get scopes from the request query parameters
         scope_string = self.request.GET.get("scope", "")
         if not scope_string and hasattr(self, "oauth2_data"):
-            # Fallback to oauth2_data if available
             scope_string = self.oauth2_data.get("scope", "")
         return scope_string.split() if scope_string else []
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-
-        # Get the application
+        
         application = None
         try:
             application = get_application_model().objects.get(
@@ -36,7 +85,6 @@ class AuthorizationView(BaseAuthorizationView, LoginRequiredMixin):
             pass
 
         scopes = self.get_scopes()
-
         scope_descriptions = {
             "openid": "Access your basic profile information",
             "profile": "Access to your full profile details",
@@ -68,14 +116,13 @@ class AuthorizationView(BaseAuthorizationView, LoginRequiredMixin):
                 redirect_url = self.error_response(credentials, "access_denied")
                 return HttpResponseRedirect(redirect_url)
 
-            # Convert scopes list to space-separated string if needed
             scopes = self.get_scopes()
             if isinstance(scopes, list):
                 scopes = " ".join(scopes)
 
             uri = self.create_authorization_response(
                 request=self.request,
-                scopes=scopes,  # Now passing a string instead of a list
+                scopes=scopes,
                 credentials=credentials,
                 allow=True,
             )[0]
@@ -108,5 +155,35 @@ class UserInfoView(APIView):
                     "name": token_payload["name"],
                 }
             )
+
+        return Response(claims)
+
+
+class DigikalaUserInfoView(APIView):
+    authentication_classes = [TurboOAuth2Authentication]
+    permission_classes = [IsTurboOAuth2Authenticated]
+
+    def get(self, request, *args, **kwargs):
+        token_payload = request.validated_token_payload if hasattr(request, "validated_token_payload") else None
+        if not token_payload:
+            return Response({"error": "Invalid token"}, status=401)
+
+        try:
+            user = DigikalaUser.objects.get(digikala_id=token_payload["sub"])
+        except DigikalaUser.DoesNotExist:
+            return Response({"error": "User not found"}, status=404)
+
+        claims = {
+            "sub": str(user.digikala_id),
+        }
+
+        if "profile" in token_payload.get("scope", "").split():
+            claims.update({
+                "name": user.full_name,
+                "given_name": user.first_name,
+                "family_name": user.last_name,
+                "email": user.email,
+                "phone_number": user.mobile,
+            })
 
         return Response(claims)

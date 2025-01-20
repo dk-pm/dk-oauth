@@ -107,11 +107,16 @@ DATABASES = {
 
 # OAuth2 and OIDC Configuration
 # Read RSA private key from file
-with open("private.pem", "r") as f:
-    PRIVATE_KEY = f.read()
+try:
+    with open("private.pem", "r") as f:
+        PRIVATE_KEY = f.read()
 
-with open("public.pem", "r") as f:
-    PUBLIC_KEY = f.read()
+    with open("public.pem", "r") as f:
+        PUBLIC_KEY = f.read()
+except FileNotFoundError:
+    # During initial setup or when running management commands
+    PRIVATE_KEY = None
+    PUBLIC_KEY = None
 
 OAUTH2_PROVIDER = {
     "SCOPES": {
@@ -126,9 +131,14 @@ OAUTH2_PROVIDER = {
     "PKCE_REQUIRED": True,
     "ACCESS_TOKEN_GENERATOR": "oauth2_server.generators.generate_access_token",
     "REFRESH_TOKEN_GENERATOR": "oauth2_server.generators.generate_refresh_token",
-    "OIDC_RSA_PRIVATE_KEY": PRIVATE_KEY,
-    "OIDC_RSA_PUBLIC_KEY": PUBLIC_KEY,
 }
+
+# Only add RSA keys if they exist
+if PRIVATE_KEY and PUBLIC_KEY:
+    OAUTH2_PROVIDER.update({
+        "OIDC_RSA_PRIVATE_KEY": PRIVATE_KEY,
+        "OIDC_RSA_PUBLIC_KEY": PUBLIC_KEY,
+    })
 
 # Rest Framework Configuration
 REST_FRAMEWORK = {
@@ -185,3 +195,12 @@ MEDIA_ROOT = os.path.join(BASE_DIR, "mediafiles")
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+AUTHENTICATION_BACKENDS = [
+    'oauth2_server.auth.DigikalaAuthBackend',
+    'django.contrib.auth.backends.ModelBackend',
+]
+
+# Add Digikala-specific settings
+DIGIKALA_LOGIN_URL = 'https://www.digikala.com/users/login/'
+DIGIKALA_API_URL = 'https://api.digikala.com/'

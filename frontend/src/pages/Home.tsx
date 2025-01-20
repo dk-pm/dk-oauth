@@ -1,23 +1,52 @@
 import { Button } from "@/components/ui/button";
 import { getAuthorizationUrl } from "@/lib/oauth2-config";
+import { useNavigate } from "react-router-dom";
 
 export default function Home() {
+  const navigate = useNavigate();
+
   const handleLogin = async () => {
-    const authUrl = await getAuthorizationUrl();
+    const authUrl = await getAuthorizationUrl(true);
     const width = 500;
     const height = 700;
     const left = window.screenX + (window.outerWidth - width) / 2;
     const top = window.screenY + (window.outerHeight - height) / 2;
 
-    // Store the original window reference
-    window.name = "mainWindow";
+    // Clear any existing flags
+    localStorage.removeItem("oauth_success");
+    localStorage.removeItem("mainWindowUrl");
 
-    window.open(
+    const popup = window.open(
       authUrl,
       "OAuth Login",
       `width=${width},height=${height},left=${left},top=${top},toolbar=0,location=0,menubar=0,status=0,scrollbars=1`
     );
-    // window.location.href = authUrl;
+
+    if (!popup) {
+      console.error("Popup was blocked");
+      return;
+    }
+
+    // Poll for popup closure and oauth success
+    const checkPopup = () => {
+      const pollTimer = setInterval(() => {
+        if (!popup || popup.closed) {
+          clearInterval(pollTimer);
+          const success = localStorage.getItem("oauth_success");
+          const userInfo = localStorage.getItem("user_info");
+
+          console.log("Popup closed, checking status:", { success, userInfo }); // Debug log
+
+          if (success && userInfo) {
+            localStorage.removeItem("oauth_success");
+            navigate("/dashboard");
+          }
+        }
+      }, 500);
+    };
+
+    // Start polling after a short delay
+    setTimeout(checkPopup, 1000);
   };
 
   return (

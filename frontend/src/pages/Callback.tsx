@@ -9,32 +9,36 @@ export default function Callback() {
 
   useEffect(() => {
     const handleCallback = async () => {
-      // Skip if we've already processed this code
       if (processedRef.current) return;
       processedRef.current = true;
 
       try {
         const params = new URLSearchParams(window.location.search);
         const code = params.get("code");
+        const isPopup = params.get("popup") === "true";
 
         if (!code) {
           throw new Error("No authorization code found");
         }
 
-        // Exchange code for tokens
-        const tokens = await exchangeCodeForTokens(code);
-
-        // Store tokens
+        // Process the tokens with the correct redirect URI
+        const tokens = await exchangeCodeForTokens(code, isPopup);
         localStorage.setItem("access_token", tokens.access_token);
         localStorage.setItem("refresh_token", tokens.refresh_token);
 
-        // Get user info
         const userInfo = await getUserInfo(tokens.access_token);
         localStorage.setItem("user_info", JSON.stringify(userInfo));
 
-        // Redirect to dashboard
+        if (isPopup) {
+          console.log("Setting oauth_success flag"); // Debug log
+          localStorage.setItem("oauth_success", "true");
+          window.close();
+          return;
+        }
+
         navigate("/dashboard");
       } catch (err) {
+        console.error("Callback error:", err); // Debug log
         setError(err instanceof Error ? err.message : "An error occurred");
       }
     };

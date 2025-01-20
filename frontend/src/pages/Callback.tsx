@@ -12,6 +12,8 @@ export default function Callback() {
       if (processedRef.current) return;
       processedRef.current = true;
 
+      const authChannel = new BroadcastChannel("auth-channel");
+
       try {
         const params = new URLSearchParams(window.location.search);
         const code = params.get("code");
@@ -21,7 +23,6 @@ export default function Callback() {
           throw new Error("No authorization code found");
         }
 
-        // Process the tokens with the correct redirect URI
         const tokens = await exchangeCodeForTokens(code, isPopup);
         localStorage.setItem("access_token", tokens.access_token);
         localStorage.setItem("refresh_token", tokens.refresh_token);
@@ -30,15 +31,22 @@ export default function Callback() {
         localStorage.setItem("user_info", JSON.stringify(userInfo));
 
         if (isPopup) {
-          console.log("Setting oauth_success flag"); // Debug log
-          localStorage.setItem("oauth_success", "true");
+          // Notify the main window of successful authentication
+          authChannel.postMessage({ type: "AUTH_SUCCESS" });
+          authChannel.close();
           window.close();
           return;
         }
 
         navigate("/dashboard");
       } catch (err) {
-        console.error("Callback error:", err); // Debug log
+        console.error("Callback error:", err);
+        // Notify the main window of authentication failure
+        authChannel.postMessage({
+          type: "AUTH_ERROR",
+          error: err instanceof Error ? err.message : "An error occurred",
+        });
+        authChannel.close();
         setError(err instanceof Error ? err.message : "An error occurred");
       }
     };

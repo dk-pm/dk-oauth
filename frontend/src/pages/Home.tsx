@@ -12,9 +12,15 @@ export default function Home() {
     const left = window.screenX + (window.outerWidth - width) / 2;
     const top = window.screenY + (window.outerHeight - height) / 2;
 
-    // Clear any existing flags
-    localStorage.removeItem("oauth_success");
-    localStorage.removeItem("mainWindowUrl");
+    // Create broadcast channel for cross-window communication
+    const authChannel = new BroadcastChannel("auth-channel");
+
+    authChannel.onmessage = (event) => {
+      if (event.data.type === "AUTH_SUCCESS") {
+        authChannel.close();
+        navigate("/dashboard");
+      }
+    };
 
     const popup = window.open(
       authUrl,
@@ -24,29 +30,9 @@ export default function Home() {
 
     if (!popup) {
       console.error("Popup was blocked");
+      authChannel.close();
       return;
     }
-
-    // Poll for popup closure and oauth success
-    const checkPopup = () => {
-      const pollTimer = setInterval(() => {
-        if (!popup || popup.closed) {
-          clearInterval(pollTimer);
-          const success = localStorage.getItem("oauth_success");
-          const userInfo = localStorage.getItem("user_info");
-
-          console.log("Popup closed, checking status:", { success, userInfo }); // Debug log
-
-          if (success && userInfo) {
-            localStorage.removeItem("oauth_success");
-            navigate("/dashboard");
-          }
-        }
-      }, 500);
-    };
-
-    // Start polling after a short delay
-    setTimeout(checkPopup, 1000);
   };
 
   return (

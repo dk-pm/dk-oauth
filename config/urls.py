@@ -22,8 +22,8 @@ from django.conf import settings
 from django.conf.urls.static import static
 
 urlpatterns = [
-    path("admin/", admin.site.urls),
-    path("accounts/", include("accounts.urls")),
-    path("o/", include("oauth2_server.urls", namespace="oauth2_provider")),
-    path("", TemplateView.as_view(template_name="home.html"), name="home"),
+    path("aut-admin/", admin.site.urls),
+    # path("accounts/", include("accounts.urls")),
+    path("/api-campaigns/aut/v1/o/", include("oauth2_server.urls", namespace="oauth2_provider")),
+    # path("", TemplateView.as_view(template_name="home.html"), name="home"),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
